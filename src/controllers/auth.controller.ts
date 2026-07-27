@@ -26,10 +26,15 @@ const register = async (req: Request, res: Response) => {
       role,
     });
     await newUser.save();
-
+    const displayedData = {
+        _id: newUser._id,
+        fullName,
+        email,
+        role
+    }
     res.status(201).json({
       status: httpStatusText.SUCCESS,
-      data: newUser,
+      data: displayedData,
     });
   } catch (error) {
     res.status(500).json({
@@ -47,7 +52,10 @@ const login = async (req: Request, res: Response) => {
         status: httpStatusText.FAIL,
         msg: "email and password are required",
       });
-    const user = await User.findOne({ email });
+    const user = await User.findOne(
+      { email },
+      { __v: 0, createdAt: 0, updatedAt: 0 },
+    );
     if (!user)
       return res.status(400).json({
         status: httpStatusText.FAIL,
@@ -55,17 +63,14 @@ const login = async (req: Request, res: Response) => {
       });
     const isPasswordsMatched = await bcrypt.compare(password, user.password);
     if (!isPasswordsMatched)
-      return res
-        .status(400)
-        .json({
-          status: httpStatusText.FAIL,
-          msg: "Invalid email or password",
-        });
+      return res.status(400).json({
+        status: httpStatusText.FAIL,
+        msg: "Invalid email or password",
+      });
 
-    const token = await generateToken({ id: user._id, email, role: user.role });
-    res.cookie("token", token, {httpOnly:true})
-    res.status(200).json({status: httpStatusText.SUCCESS})
-
+    const token = generateToken({ id: user._id, email, role: user.role });
+    res.cookie("token", token, { httpOnly: true });
+    res.status(200).json({ status: httpStatusText.SUCCESS});
   } catch (error) {
     res.status(500).json({
       status: httpStatusText.ERROR,
@@ -73,4 +78,4 @@ const login = async (req: Request, res: Response) => {
     });
   }
 };
-export default {register, login}
+export default { register, login };
