@@ -8,7 +8,7 @@ const options = {
       version: "1.0.0",
       description: "API documentation for customers and cinema admins",
     },
-    servers: [{ url: "http://localhost:3000" }],
+    servers: [{url: "https://movie-ticket-booking-system-production-b0d8.up.railway.app"},{ url: "http://localhost:3000" }],
   },
   apis: ["./src/routes/*.ts", "./src/controllers/*.ts"],
 };
