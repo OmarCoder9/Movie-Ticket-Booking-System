@@ -30,7 +30,56 @@ const getMovies = async (req: Request, res: Response) => {
     const limit: number = Number(req.query.limit) || 20;
     const page: number = Number(req.query.page) || 1;
     const skip: number = (page - 1) * limit;
-    const movies = await Movie.find({})
+    const { title, genre, status, date, showtime } = req.query as {
+      title?: string;
+      genre?: string;
+      status?: string;
+      date?: string;
+      showtime?: string;
+    };
+
+    const query: Record<string, unknown> = {};
+
+    if (title) {
+      query.title = { $regex: title, $options: "i" };
+    }
+
+    if (genre) {
+      query.genre = { $elemMatch: { $regex: genre, $options: "i" } };
+    }
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (date || showtime) {
+      const showtimeQuery: Record<string, unknown> = {};
+      if (date) {
+        const start = new Date(date);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(date);
+        end.setHours(23, 59, 59, 999);
+        showtimeQuery.date = { $gte: start, $lte: end };
+      }
+
+      if (showtime) {
+        showtimeQuery.startTime = { $regex: showtime, $options: "i" };
+      }
+
+      const matchingShowtimes =
+        await Showtime.find(showtimeQuery).select("movie");
+      const movieIds = matchingShowtimes.map((item) => item.movie);
+      if (movieIds.length === 0) {
+        return res.status(200).json({
+          status: httpStatusText.SUCCESS,
+          data: [],
+        });
+      }
+
+      query._id = { $in: movieIds };
+    }
+
+    const movies = await Movie.find(query)
       .select("-__v -createdAt -updatedAt")
       .skip(skip)
       .limit(limit);
@@ -102,8 +151,11 @@ const getAvailableSeats = async (req: AuthRequest, res: Response) => {
     const bookedSeats = new Set(
       bookings.flatMap((booking) => booking.selectedSeats),
     );
+    const blockedSeats = new Set(showtime.blockedSeats || []);
     const allSeats = createSeatLabels(showtime.totalCapacity);
-    const availableSeats = allSeats.filter((seat) => !bookedSeats.has(seat));
+    const availableSeats = allSeats.filter(
+      (seat) => !bookedSeats.has(seat) && !blockedSeats.has(seat),
+    );
 
     res.status(200).json({
       status: httpStatusText.SUCCESS,
@@ -144,6 +196,41 @@ const bookTickets = async (req: AuthRequest, res: Response) => {
       });
     }
 
+    const showtimeStart = new Date(
+      `${showtime.date.toISOString().split("T")[0]}T${showtime.startTime}`,
+    );
+    if (new Date() >= showtimeStart) {
+      return res.status(400).json({
+        status: httpStatusText.FAIL,
+        msg: "Bookings can only be made for upcoming showtimes",
+      });
+    }
+
+    const normalizedSeats = [...new Set(selectedSeats as string[])];
+    if (normalizedSeats.length !== selectedSeats.length) {
+      return res.status(400).json({
+        status: httpStatusText.FAIL,
+        msg: "Duplicate seats are not allowed in the same booking",
+      });
+    }
+
+    const invalidSeats = normalizedSeats.filter((seat: string) => {
+      const seatNumber = Number(seat.replace("Seat ", ""));
+      return (
+        !Number.isInteger(seatNumber) ||
+        seatNumber < 1 ||
+        seatNumber > showtime.totalCapacity
+      );
+    });
+
+    if (invalidSeats.length > 0) {
+      return res.status(400).json({
+        status: httpStatusText.FAIL,
+        msg: "Selected seats must be valid seat labels within the hall capacity",
+        data: { invalidSeats },
+      });
+    }
+
     const existingBookings = await Booking.find({
       showtime: showtimeId,
       bookingStatus: { $ne: BookingStatus.CANCELLED },
@@ -152,19 +239,27 @@ const bookTickets = async (req: AuthRequest, res: Response) => {
     const bookedSeats = new Set(
       existingBookings.flatMap((booking) => booking.selectedSeats),
     );
-    const unavailableSeats = selectedSeats.filter((seat: string) =>
-      bookedSeats.has(seat),
+    const blockedSeats = new Set(showtime.blockedSeats || []);
+    const unavailableSeats = normalizedSeats.filter(
+      (seat: string) => bookedSeats.has(seat) || blockedSeats.has(seat),
     );
 
     if (unavailableSeats.length > 0) {
       return res.status(400).json({
         status: httpStatusText.FAIL,
-        msg: "Some selected seats are already booked",
+        msg: "Some selected seats are already booked or blocked",
         data: { unavailableSeats },
       });
     }
 
-    const totalPrice = showtime.ticketPrice * selectedSeats.length;
+    if (normalizedSeats.length > showtime.totalCapacity) {
+      return res.status(400).json({
+        status: httpStatusText.FAIL,
+        msg: "Selected seats cannot exceed hall capacity",
+      });
+    }
+
+    const totalPrice = showtime.ticketPrice * normalizedSeats.length;
     if (!req.user?.id) {
       return res.status(401).json({
         status: httpStatusText.FAIL,
@@ -175,7 +270,7 @@ const bookTickets = async (req: AuthRequest, res: Response) => {
     const booking = await Booking.create({
       customer: req.user.id as any,
       showtime: showtimeId as any,
-      selectedSeats,
+      selectedSeats: normalizedSeats,
       totalPrice,
       bookingStatus: BookingStatus.CONFIRMED,
     });

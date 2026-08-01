@@ -10,7 +10,7 @@ export interface IMovie extends Document {
   genre: string[];
   duration: number;
   description: string;
-  posterUrl: string;
+  posterURL: string;
   rating: number;
   status: MovieStatus;
 }

@@ -8,6 +8,7 @@ export interface IShowtime extends Document {
   endTime: string;
   ticketPrice: number;
   totalCapacity: number;
+  blockedSeats: string[];
 }
 
 const showtimeSchema = new Schema<IShowtime>(
@@ -50,9 +51,14 @@ const showtimeSchema = new Schema<IShowtime>(
       required: true,
       min: 1,
     },
+
+    blockedSeats: {
+      type: [String],
+      default: [],
+    },
   },
   {
     timestamps: true,
-  }
+  },
 );
 export default model<IShowtime>("Showtime", showtimeSchema);
