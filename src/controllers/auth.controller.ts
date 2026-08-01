@@ -10,6 +10,7 @@ const isStrongPassword = (password: string) => {
     password,
   );
 };
+const dummyHash = "$2a$10$vLsCj3I2SlNDFcETy/sqTufgXRCy8iYPjtWwSJXNCo1uvjOe2Y09O";
 
 const register = async (req: Request, res: Response) => {
   try {
@@ -89,18 +90,13 @@ const login = async (req: Request, res: Response) => {
       { email },
       { __v: 0, createdAt: 0, updatedAt: 0 },
     );
-    if (!user)
-      return res.status(400).json({
-        status: httpStatusText.FAIL,
-        msg: "This email doesn't has an account try signing up",
-      });
-    const isPasswordsMatched = await bcrypt.compare(password, user.password);
-    if (!isPasswordsMatched)
+    const isPasswordsMatched = await bcrypt.compare(password, user?.password || dummyHash);
+    if (!user || !isPasswordsMatched){
       return res.status(400).json({
         status: httpStatusText.FAIL,
         msg: "Invalid email or password",
       });
-
+    }
     const token = generateToken({
       id: user._id.toString(),
       email,
